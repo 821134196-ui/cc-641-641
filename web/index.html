@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>直播抽奖资格与奖品发货系统</title>
+<script src="/vendor/vue.global.prod.js"></script>
+<style>
+  :root {
+    --bg:#0f1420; --panel:#171e2e; --panel2:#1d2638; --line:#2a3650;
+    --text:#e6ecf7; --muted:#8fa0bf; --accent:#4f8cff; --ok:#2fbf71;
+    --warn:#e8a33d; --bad:#ef5b6b; --chip:#24304a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  header { padding:16px 24px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:16px; background:#121826; }
+  header h1 { font-size:17px; margin:0; font-weight:600; }
+  .wrap { max-width:1180px; margin:0 auto; padding:20px 24px 60px; }
+  .tabs { display:flex; gap:8px; margin-bottom:18px; }
+  .tabs button { background:var(--panel); color:var(--muted); border:1px solid var(--line);
+    padding:8px 18px; border-radius:8px; cursor:pointer; font-size:14px; }
+  .tabs button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; display:flex; align-items:center; gap:10px; }
+  .card h3 { font-size:13px; color:var(--muted); margin:14px 0 6px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .muted { color:var(--muted); } .mono { font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .small { font-size:12px; }
+  button.btn { background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    padding:7px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
+  button.btn:hover { border-color:var(--accent); }
+  button.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.btn.danger { border-color:var(--bad); color:var(--bad); }
+  button.btn.ok { border-color:var(--ok); color:var(--ok); }
+  button.btn:disabled { opacity:.45; cursor:not-allowed; }
+  input,select,textarea { background:#0e1422; border:1px solid var(--line); color:var(--text);
+    border-radius:7px; padding:7px 10px; font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  .chip { display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px;
+    background:var(--chip); color:#bcd0f5; white-space:nowrap; }
+  .chip.ok { background:rgba(47,191,113,.15); color:var(--ok); }
+  .chip.warn { background:rgba(232,163,61,.15); color:var(--warn); }
+  .chip.bad { background:rgba(239,91,107,.15); color:var(--bad); }
+  .chip.accent { background:rgba(79,140,255,.15); color:var(--accent); }
+  .hash { word-break:break-all; color:#9db8ff; }
+  .toast { position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column; gap:8px; z-index:99; }
+  .toast div { padding:10px 16px; border-radius:8px; background:var(--panel2);
+    border:1px solid var(--line); max-width:420px; }
+  .toast div.err { border-color:var(--bad); color:#ffc4cb; }
+  .toast div.good { border-color:var(--ok); color:#b8f0d0; }
+  pre.logs { background:#0b101c; border:1px solid var(--line); border-radius:8px; padding:10px;
+    height:260px; overflow:auto; font-size:12px; color:#aab9d6; white-space:pre-wrap; margin:0; }
+  .kv { display:grid; grid-template-columns:130px 1fr; gap:4px 12px; font-size:13px; }
+  .kv .k { color:var(--muted); }
+  .banner { border-radius:10px; padding:12px 16px; margin-bottom:14px; border:1px solid var(--line); background:var(--panel2); }
+  .banner.live { border-color:var(--ok); background:rgba(47,191,113,.08); }
+  .banner.drawn { border-color:var(--accent); background:rgba(79,140,255,.08); }
+  .pill { padding:2px 8px; border-radius:6px; background:#0e1422; border:1px solid var(--line); font-size:12px; }
+  .stat { font-size:22px; font-weight:600; }
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <h1>🎁 电商直播抽奖 · 资格与奖品发货系统</h1>
+  <span class="pill">Go + Gin + GORM + SQLite</span>
+  <span style="flex:1"></span>
+  <label class="small muted">活动：
+    <select :value="campaignId" @change="switchCampaign($event.target.value)" style="min-width:200px">
+      <option v-for="c in campaigns" :key="c.id" :value="c.id">
+        #{{ c.id }} {{ c.name }} [{{ statusText(c.status) }}]
+      </option>
+    </select>
+  </label>
+  <button class="btn small" @click="refreshAll">刷新</button>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <button :class="{on:tab==='viewer'}" @click="tab='viewer'">👤 观众中心</button>
+    <button :class="{on:tab==='ops'}" @click="tab='ops'">🛠 运营后台</button>
+    <button :class="{on:tab==='audit'}" @click="tab='audit'">📜 审计中心</button>
+  </div>
+
+  <!-- ============ 观众中心 ============ -->
+  <div v-if="tab==='viewer'">
+    <div class="card">
+      <h2>观众身份</h2>
+      <div class="row">
+        <select v-model="viewerAccountId" style="min-width:260px">
+          <option value="">请选择登录账号…</option>
+          <option v-for="a in accounts" :key="a.id" :value="a.id">
+            {{ a.nickname }}（{{ a.unique_no }}，有效订单 {{ a.active_orders }} 单）
+          </option>
+        </select>
+        <span class="muted small">本地模拟账号；同一账号只能占用一个名额</span>
+      </div>
+    </div>
+
+    <div class="banner" :class="{live: detail.campaign && detail.campaign.status==='open', drawn: detail.campaign && ['drawn','settled'].includes(detail.campaign.status)}">
+      <div style="font-size:16px;font-weight:600">{{ detail.campaign ? detail.campaign.name : '加载中…' }}</div>
+      <div class="small muted" style="margin-top:4px">
+        活动状态：<b>{{ detail.campaign ? statusText(detail.campaign.status) : '-' }}</b>
+        ｜计划开奖时间：<span class="mono">{{ fmtTime(detail.campaign && detail.campaign.scheduled_draw_at) }}</span>
+      </div>
+      <div class="small" style="margin-top:6px" v-if="detail.rule">
+        锁定条件：活动期间有效订单 ≥ {{ detail.rule.min_active_orders }} 单；
+        正式中奖 {{ detail.rule.win_count }} 名；
+        开奖后 <b>{{ detail.rule.address_limit_minutes }} 分钟</b>内填写地址，
+        超期按锁定规则「{{ detail.rule.forfeit_policy === 'forfeit_no_redraw' ? '放弃资格、不补抽' : detail.rule.forfeit_policy }}」处理。
+      </div>
+    </div>
+
+    <div class="card" v-if="viewerAccountId">
+      <h2>我的报名</h2>
+      <div v-if="viewer.registration">
+        <span class="chip ok" v-if="viewer.registration.qualified===true">资格核验：合格</span>
+        <span class="chip bad" v-else-if="viewer.registration.qualified===false">资格核验：不合格（{{ viewer.registration.disable_reason }}）</span>
+        <span class="chip" v-else>已报名，等待活动结束后核验</span>
+      </div>
+      <div v-else-if="detail.campaign && detail.campaign.status==='open'" class="row">
+        <span class="muted">报名通道已开放</span>
+        <button class="btn primary" @click="register">立即报名（重复点击只占一个名额）</button>
+      </div>
+      <div v-else class="muted small">当前阶段不可报名</div>
+    </div>
+
+    <div class="card">
+      <h2>开奖结果（对全体观众公布的唯一正式名单）</h2>
+      <div v-if="!entriesData.drawn" class="muted">
+        尚未开奖。开奖时间以活动页公示为准；正式名单生成后在此公布，不会出现第二份结果。
+      </div>
+      <template v-else>
+        <div class="small muted" style="margin-bottom:8px">
+          开奖时间：<span class="mono">{{ fmtTime(entriesData.batch.drawn_at) }}</span>
+          ｜名单种子：<span class="mono hash">{{ entriesData.batch.seed }}</span>
+        </div>
+        <table>
+          <tr><th>名次</th><th>账号</th><th>奖项</th><th>奖品编号</th><th>状态</th><th>操作</th></tr>
+          <tr v-for="e in myEntries" :key="e.id">
+            <td>{{ e.rank }}</td><td>{{ e.nickname }}</td>
+            <td>{{ e.prize_name }}</td>
+            <td class="mono">{{ e.serial_no || '—' }}</td>
+            <td><span class="chip" :class="statusClass(e.status)">{{ entryStatus(e.status) }}</span>
+              <div v-if="e.forfeit_reason" class="small muted">{{ e.forfeit_reason }}</div></td>
+            <td>
+              <button v-if="e.status==='pending'" class="btn ok" @click="confirmWin(e)">确认中奖（同时占用库存）</button>
+              <template v-if="e.status==='confirmed'">
+                <input v-model="addr[e.id].receiver" placeholder="收件人" class="small">
+                <input v-model="addr[e.id].phone" placeholder="电话" class="small">
+                <input v-model="addr[e.id].address" placeholder="详细地址" class="small" style="min-width:220px">
+                <button class="btn primary" @click="submitAddr(e)">提交地址</button>
+              </template>
+              <span v-if="['addressed','shipped','delivered'].includes(e.status)" class="small muted">
+                {{ e.receiver }} {{ e.address }}
+                <span v-if="e.shipment_no">｜运单 {{ e.shipment_no }}（{{ e.shipment_status==='delivered'?'已妥投':'运输中' }}）</span>
+              </span>
+            </td>
+          </tr>
+          <tr v-if="myEntries.length===0"><td colspan="6" class="muted">本账号未在正式名单中</td></tr>
+        </table>
+      </template>
+    </div>
+  </div>
+
+  <!-- ============ 运营后台 ============ -->
+  <div v-if="tab==='ops'">
+    <div class="grid">
+      <div class="card">
+        <h2>活动阶段
+          <span class="chip" :class="statusClass(detail.campaign && detail.campaign.status)">
+            {{ detail.campaign ? statusText(detail.campaign.status) : '-' }}
+          </span>
+        </h2>
+        <div class="row">
+          <button class="btn" :disabled="!can('draft')" @click="act('lock')">① 锁定规则与库存</button>
+          <button class="btn" :disabled="!can('locked')" @click="act('open')">② 开放报名</button>
+          <button class="btn" :disabled="!can('open')" @click="closeVerify">③ 结束并核验资格</button>
+          <button class="btn primary" :disabled="!can('closed')" @click="draw">④ 正式开奖（仅可一次）</button>
+          <button class="btn danger" :disabled="!can('drawn')" @click="forfeit(35)">⑤ 模拟超期巡检（+35分钟）</button>
+        </div>
+        <h3>阶段统计</h3>
+        <div class="kv">
+          <span class="k">报名人数</span><span>{{ detail.registration_count }}</span>
+          <span class="k">核验合格</span><span>{{ detail.qualified_count }}</span>
+          <span class="k">正式开奖批次</span><span>
+            <b :class="{'chip bad': detail.draw_batch_count>1}">{{ detail.draw_batch_count }}</b>
+            <span class="muted small">（必须恒为 1，重复开奖会被拒绝）</span></span>
+          <span class="k">名单状态分布</span>
+          <span><span v-for="(n,k) in detail.entry_status_count" :key="k" class="pill" style="margin-right:6px">
+            {{ entryStatus(k) }}: {{ n }}</span></span>
+        </div>
+        <h3>新建活动（先锁定再报名）</h3>
+        <div class="row small">
+          <input v-model="newCamp.name" placeholder="活动名称" style="width:150px">
+          <label>有效订单≥<input v-model.number="newCamp.minOrders" type="number" style="width:60px"></label>
+          <label>中奖人数<input v-model.number="newCamp.win" type="number" style="width:60px"></label>
+          <label>填址时限(分)<input v-model.number="newCamp.limit" type="number" style="width:60px"></label>
+          <button class="btn" @click="createCampaign">创建草稿+模拟观众</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>奖项与库存</h2>
+        <table>
+          <tr><th>奖项</th><th>名称</th><th>总库存</th><th>剩余可发</th></tr>
+          <tr v-for="p in detail.prizes" :key="p.id">
+            <td class="mono">{{ p.code }}</td><td>{{ p.name }}</td>
+            <td>{{ p.total_stock }}</td>
+            <td><b :style="{color:p.remaining===0?'var(--bad)':'var(--ok)'}">{{ p.remaining }}</b></td>
+          </tr>
+        </table>
+        <h3>物流操作（本地模拟）</h3>
+        <div class="row small">
+          <input v-model="receipt.shipmentNo" placeholder="运单号" style="width:180px">
+          <input v-model="receipt.no" placeholder="回执号" style="width:160px">
+          <button class="btn" @click="sendReceipt(false)">发送妥投回执</button>
+          <button class="btn" @click="sendReceipt(true)">重发同一回执（验证幂等）</button>
+        </div>
+        <h3>订单退货（资格失效→复核，不重新开奖）</h3>
+        <table>
+          <tr><th>订单</th><th>账号</th><th>金额</th><th>状态</th><th></th></tr>
+          <tr v-for="o in orders" :key="o.id">
+            <td class="mono">#{{ o.id }}</td><td>{{ o.account_name }}</td>
+            <td>￥{{ (o.amount_fen/100).toFixed(2) }}</td>
+            <td><span class="chip" :class="o.status==='returned'?'bad':'ok'">
+              {{ o.status==='returned'?'已退货':'有效' }}</span></td>
+            <td><button class="btn danger small" :disabled="o.status==='returned'" @click="returnOrder(o)">退货</button></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>唯一正式名单与按编号发货</h2>
+      <div v-if="!entriesData.drawn" class="muted">开奖后在此查看正式名单</div>
+      <table v-else>
+        <tr><th>名次</th><th>中奖账号</th><th>奖项</th><th>奖品编号</th><th>状态</th><th>收货信息</th><th>操作</th></tr>
+        <tr v-for="e in entriesData.entries" :key="e.id">
+          <td>{{ e.rank }}</td><td>{{ e.nickname }}<div class="small muted">{{ e.unique_no }}</div></td>
+          <td>{{ e.prize_name }}</td>
+          <td class="mono">{{ e.serial_no || '—' }}</td>
+          <td><span class="chip" :class="statusClass(e.status)">{{ entryStatus(e.status) }}</span></td>
+          <td class="small">{{ e.receiver }} {{ e.phone }} {{ e.address }}
+            <div v-if="e.shipment_no" class="mono muted">{{ e.shipment_no }} · {{ e.shipment_status==='delivered'?'已妥投':'运输中' }}</div></td>
+          <td>
+            <button class="btn ok small" v-if="e.status==='addressed'" @click="ship(e)">按编号发货</button>
+            <button class="btn small" v-if="e.status==='pending'" @click="confirmWin(e)">代确认</button>
+            <span v-if="e.forfeit_reason" class="small bad">{{ e.forfeit_reason }}</span>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>本地事件流（模拟直播流量 / 物流回执）</h2>
+      <pre class="logs">{{ simLogs.logs.join('\n') }}</pre>
+      <div class="small muted" style="margin-top:6px">当前在途写入事务：{{ simLogs.inflight }}</div>
+    </div>
+  </div>
+
+  <!-- ============ 审计中心 ============ -->
+  <div v-if="tab==='audit'">
+    <div class="grid">
+      <div class="card">
+        <h2>正式名单可审计性</h2>
+        <button class="btn" @click="loadVerify">重放开奖并核对</button>
+        <div v-if="verify" class="kv" style="margin-top:12px">
+          <span class="k">开奖批次</span><span>#{{ verify.batch_id }}</span>
+          <span class="k">开奖种子</span><span class="mono hash small">{{ verify.seed }}</span>
+          <span class="k">规则哈希一致</span>
+          <span><span class="chip" :class="verify.rule_hash_match?'ok':'bad'">
+            {{ verify.rule_hash_match?'一致':'被篡改' }}</span></span>
+          <span class="k">合格名单根哈希</span><span class="mono hash small">{{ verify.qualified_root }}</span>
+          <span class="k">种子重放结果</span>
+          <span><span class="chip" :class="verify.replay_matches?'ok':'bad'">
+            {{ verify.replay_matches?'与正式名单完全一致':'不一致：名单被改动' }}</span></span>
+        </div>
+        <h3>锁定规则快照</h3>
+        <pre class="logs" style="height:auto;max-height:200px">{{ JSON.stringify(detail.rule,null,2) }}</pre>
+      </div>
+
+      <div class="card">
+        <h2>库存对账
+          <button class="btn small" @click="loadInventory">对账</button>
+        </h2>
+        <div v-if="inventory">
+          <div class="banner" :class="inventory.consistent?'live':''">
+            <span class="chip" :class="inventory.consistent?'ok':'bad'">
+              {{ inventory.consistent?'账实一致、无超扣、无重发':'发现不一致' }}
+            </span>
+          </div>
+          <table>
+            <tr><th>奖项</th><th>流水轧差</th><th>剩余</th><th>在库单件</th><th>已发(运单)</th><th>妥投</th><th>收回</th></tr>
+            <tr v-for="p in inventory.prizes" :key="p.prize">
+              <td>{{ p.prize }} {{ p.name }}</td>
+              <td :class="p.ledger_ok?'':'bad'">{{ p.ledger_sum }}</td>
+              <td>{{ p.remaining }}</td>
+              <td :class="p.units_ok?'':'bad'">{{ p.units_stock }}</td>
+              <td :class="p.shipments_ok?'':'bad'">{{ p.shipments }}（运{{ p.units_shipped }}+妥{{ p.units_delivered }}）</td>
+              <td>{{ p.units_delivered }}</td>
+              <td class="warn">{{ p.units_recovered }}</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>资格复核单（退货触发；任何处置都不重新生成正式名单）</h2>
+      <table>
+        <tr><th>#</th><th>账号</th><th>原因</th><th>处置</th><th>备注</th><th>时间</th></tr>
+        <tr v-for="r in reviews" :key="r.id">
+          <td>{{ r.id }}</td><td>{{ accountName(r.account_id) }}</td>
+          <td class="small">{{ r.reason }}</td>
+          <td><span class="chip" :class="r.status==='resolved'?'ok':'warn'">
+            {{ reviewResolution(r.resolution) || '待人工处理' }}</span></td>
+          <td class="small muted">{{ r.note }}</td>
+          <td class="small mono">{{ fmtTime(r.created_at) }}</td>
+        </tr>
+        <tr v-if="reviews.length===0"><td colspan="6" class="muted">暂无复核单</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>审计日志（规则锁定 → 开奖 → 库存 → 发货 → 回执 全程留痕）</h2>
+      <pre class="logs" style="height:340px">{{ auditText }}</pre>
+    </div>
+  </div>
+</div>
+
+<div class="toast">
+  <div v-for="(t,i) in toasts" :key="i" :class="t.type">{{ t.msg }}</div>
+</div>
+</div>
+
+<script>
+const { createApp } = Vue;
+createApp({
+  data() {
+    return {
+      tab: 'viewer',
+      campaigns: [], campaignId: null,
+      detail: {}, accounts: [], orders: [],
+      entriesData: { drawn:false, entries:[], batch:{} },
+      viewerAccountId: '', viewer: {},
+      reviews: [], auditLogs: [], verify: null, inventory: null,
+      simLogs: { logs: [], inflight: 0 },
+      addr: {}, receipt: { no:'', shipmentNo:'' },
+      newCamp: { name:'新人福利场', minOrders:1, win:3, limit:30 },
+      toasts: [],
+    };
+  },
+  computed: {
+    myEntries() {
+      const id = Number(this.viewerAccountId);
+      return this.entriesData.entries.filter(e => e.account_id === id);
+    },
+    auditText() {
+      return this.auditLogs.map(l =>
+        this.fmtTime(l.created_at) + ' [' + l.actor + '] ' + l.action + ' — ' + l.detail).join('\n');
+    },
+  },
+  methods: {
+    fmtTime(t) { return t ? new Date(t).toLocaleString('zh-CN', {hour12:false}) : '—'; },
+    statusText(s) {
+      return ({draft:'草稿', locked:'规则已锁定', open:'报名中', closed:'待开奖',
+        drawn:'已开奖', settled:'已结清'})[s] || s;
+    },
+    entryStatus(s) {
+      return ({pending:'待确认', confirmed:'已确认待填址', addressed:'已填址待发货',
+        shipped:'已发货', delivered:'已妥投', forfeited:'超期放弃', void_review:'复核作废'})[s] || s;
+    },
+    statusClass(s) {
+      return ({draft:'', locked:'accent', open:'ok', closed:'warn', drawn:'accent', settled:'ok',
+        pending:'warn', confirmed:'accent', addressed:'accent', shipped:'', delivered:'ok',
+        forfeited:'bad', void_review:'bad'})[s] || '';
+    },
+    reviewResolution(r) {
+      return ({disqualified_before_draw:'开奖前排除', void_pending:'未占用库存直接作废',
+        forfeit_recovered:'收回奖品不补抽', recorded_after_delivery:'妥投后仅记录',
+        not_a_winner:'非中奖者仅记录'})[r] || '';
+    },
+    accountName(id) { const a = this.accounts.find(x => x.id === id); return a ? a.nickname : ('#'+id); },
+    can(stage) { return this.detail.campaign && this.detail.campaign.status === stage; },
+    toast(msg, type='') {
+      this.toasts.push({msg, type});
+      setTimeout(() => this.toasts.shift(), 4000);
+    },
+    async api(path, opts={}) {
+      const r = await fetch('/api'+path, {headers:{'Content-Type':'application/json'}, ...opts});
+      const j = await r.json().catch(()=>({}));
+      if (!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+      return j;
+    },
+    async switchCampaign(v) {
+      this.campaignId = Number(v);
+      this.verify = null; this.inventory = null;
+      await this.refreshAll();
+    },
+    async loadCampaigns(keep) {
+      this.campaigns = await this.api('/campaigns');
+      if ((!this.campaignId || !keep) && this.campaigns.length) {
+        this.campaignId = this.campaigns[0].id;
+      }
+    },
+    async refreshAll() {
+      if (!this.campaignId) { await this.loadCampaigns(false); if (!this.campaignId) return; }
+      const id = this.campaignId;
+      const [detail, accounts, entries, reviews, audit, logs] = await Promise.all([
+        this.api('/campaigns/'+id),
+        this.api('/accounts?campaign_id='+id),
+        this.api('/campaigns/'+id+'/entries'),
+        this.api('/campaigns/'+id+'/reviews'),
+        this.api('/campaigns/'+id+'/audit'),
+        this.api('/sim/logs'),
+      ]);
+      this.detail = detail; this.accounts = accounts; this.entriesData = entries;
+      this.reviews = reviews; this.auditLogs = audit; this.simLogs = logs;
+      for (const e of entries.entries) {
+        if (!this.addr[e.id]) this.addr[e.id] = {receiver:'', phone:'', address:''};
+      }
+      await this.loadOrders();
+      if (this.viewerAccountId) await this.loadViewer();
+      await this.loadCampaigns(true);
+    },
+    async loadOrders() {
+      const data = await this.api('/campaigns/'+this.campaignId+'/orders').catch(()=>({orders:[]}));
+      this.orders = data.orders || [];
+    },
+    async loadViewer() {
+      this.viewer = await this.api('/campaigns/'+this.campaignId+'/viewer?account_id='+this.viewerAccountId);
+    },
+    async register() {
+      try { await this.api('/campaigns/'+this.campaignId+'/register',
+        {method:'POST', body:JSON.stringify({account_id:Number(this.viewerAccountId)})});
+        this.toast('报名成功', 'good');
+      } catch(e) { this.toast(e.message, 'err'); }
+      await this.refreshAll();
+    },
+    async act(a) {
+      try { await this.api('/campaigns/'+this.campaignId+'/'+a, {method:'POST'});
+        this.toast('操作成功', 'good');
+      } catch(e) { this.toast(e.message, 'err'); }
+      await this.refreshAll();
+    },
+    async closeVerify() {
+      try { const r = await this.api('/campaigns/'+this.campaignId+'/close-verify', {method:'POST'});
+        this.toast('核验完成：合格 '+r.qualified+'，不合格 '+r.disqualified, 'good');
+      } catch(e) { this.toast(e.message, 'err'); }
+      await this.refreshAll();
+    },
+    async draw() {
+      try { await this.api('/campaigns/'+this.campaignId+'/draw', {method:'POST'});
+        this.toast('正式名单已生成并锁定（唯一一份）', 'good');
+      } catch(e) { this.toast(e.message, 'err'); }
+      await this.refreshAll();
+    },
+    async forfeit(off) {
+      try { const r = await this.api('/campaigns/'+this.campaignId+'/forfeit',
+        {method:'POST', body:JSON.stringify({offset_minutes:off})});
+        this.toast('巡检完成，超期放弃 '+r.forfeited+' 人（按锁定规则不补抽）', 'good');
+      } catch(e) { this.toast(e.message, 'err'); }
+      await this.refreshAll();
+    },
+    async confirmWin(e) {
+      try { await this.api('/entries/'+e.id+'/confirm', {method:'POST'});
+        this.toast('确认成功：中奖状态与库存扣减在同一事务完成', 'good');
+      } catch(err) { this.toast(err.message, 'err'); }
+      await this.refreshAll();
+    },
+    async submitAddr(e) {
+      const a = this.addr[e.id];
+      try { await this.api('/entries/'+e.id+'/address',
+        {method:'POST', body:JSON.stringify(a)});
+        this.toast('地址已提交', 'good');
+      } catch(err) { this.toast(err.message, 'err'); }
+      await this.refreshAll();
+    },
+    async ship(e) {
+      try { const sh = await this.api('/entries/'+e.id+'/ship', {method:'POST'});
+        this.toast('已按奖品编号 '+sh.serial_no+' 发货，运单 '+sh.shipment_no, 'good');
+      } catch(err) { this.toast(err.message, 'err'); }
+      await this.refreshAll();
+    },
+    async returnOrder(o) {
+      try { const rc = await this.api('/orders/'+o.id+'/return', {method:'POST'});
+        this.toast('已进入复核：'+(rc.note||rc.resolution||'待处理'), 'good');
+      } catch(err) { this.toast(err.message, 'err'); }
+      await this.refreshAll();
+    },
+    async sendReceipt(repeat) {
+      try {
+        let no = this.receipt.no;
+        if (repeat && !no) { this.toast('请先填写已发送过的回执号', 'err'); return; }
+        if (!repeat && !no) no = 'RCP-MANUAL-' + Date.now();
+        const r = await this.api('/logistics/receipt', {method:'POST',
+          body:JSON.stringify({receipt_no:no, shipment_no:this.receipt.shipmentNo, event:'delivered'})});
+        this.toast(r.duplicate ? '重复回执已忽略：发货数量不变' : '回执已处理', r.duplicate?'':'good');
+      } catch(err) { this.toast(err.message, 'err'); }
+      await this.refreshAll();
+    },
+    async loadVerify() { this.verify = await this.api('/campaigns/'+this.campaignId+'/verify'); },
+    async loadInventory() { this.inventory = await this.api('/campaigns/'+this.campaignId+'/inventory'); },
+    async createCampaign() {
+      const win = this.newCamp.win;
+      const prizes = [];
+      // 简单均分：全部为同等奖，库存与中奖人数严格相等（锁定前对齐）
+      prizes.push({code:'A', name:'直播大奖', stock:win});
+      try {
+        const r = await this.api('/campaigns', {method:'POST', body:JSON.stringify({
+          name:this.newCamp.name, min_active_orders:this.newCamp.minOrders,
+          win_count:win, address_limit_minutes:this.newCamp.limit, prizes})});
+        await this.api('/campaigns/'+r.id+'/seed', {method:'POST', body:JSON.stringify({accounts:10, orders_each:1})});
+        this.toast('草稿活动已创建并生成模拟观众', 'good');
+      } catch(e) { this.toast(e.message, 'err'); }
+      await this.loadCampaigns(false);
+      await this.refreshAll();
+    },
+  },
+  async mounted() {
+    await this.loadCampaigns(false);
+    await this.refreshAll();
+    setInterval(() => this.refreshAll().catch(()=>{}), 3000);
+  },
+}).mount('#app');
+</script>
+</body>
+</html>

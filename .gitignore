@@ -13,3 +13,10 @@ build/
 轨迹/
 录屏/
 视频/
+
+# 本项目运行产物
+/data/
+/bin/
+*.db
+*.db-wal
+*.db-shm
