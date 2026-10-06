@@ -1,0 +1,12 @@
+# 构建产物与运行数据
+bin/
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# 前端依赖（根 .gitignore 已含 node_modules，此处显式声明）
+web/frontend/node_modules/
+
+# 前端构建产物由 run.sh 生成到 web/static；保留占位 index.html，忽略打包哈希资源
+web/static/assets/
